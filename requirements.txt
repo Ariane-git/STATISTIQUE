@@ -2,7 +2,7 @@ joblib
 numpy
 pandas
 plotly
-scikit_learn
+scikit-learn
 scipy
 statsmodels
 streamlit
