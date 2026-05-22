@@ -12,6 +12,27 @@ import joblib
 import os
 import warnings
 warnings.filterwarnings('ignore')
+import os
+import subprocess
+
+
+# Vérifie si les modèles existent
+if not os.path.exists("model_xgboost.pkl") or not os.path.exists("model_random_forest.pkl") or not os.path.exists("model_decision_tree.pkl"):
+
+    st.info("Création des modèles ML...")
+
+    result = subprocess.run(
+        ["python", "setup.py"],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        st.error("Erreur pendant setup.py")
+        st.code(result.stderr)
+        st.stop()
+
+    st.success("Modèles créés avec succès")
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 st.set_page_config(
