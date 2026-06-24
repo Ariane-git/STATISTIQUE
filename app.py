@@ -751,7 +751,8 @@ elif page == "Analyse SHAP":
         shap_col  = shap_arr[:, col_idx]
         feat_col  = X_shap_np[:, col_idx]
         # Normaliser les valeurs pour la couleur
-        feat_norm = (feat_col - feat_col.min()) / (feat_col.ptp() + 1e-8)
+        # Après (compatible toutes versions)
+        feat_norm = (feat_col - feat_col.min()) / (feat_col.max() - feat_col.min() + 1e-8)
         # Jitter vertical
         jitter = np.random.uniform(-0.3, 0.3, len(shap_col))
         fig_bee.add_trace(go.Scatter(
