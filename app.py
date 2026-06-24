@@ -9,8 +9,10 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import joblib, os, warnings
-import os
 warnings.filterwarnings('ignore')
+
+# Répertoire absolu du fichier app.py — fonctionne quel que soit le cwd
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ─── Config page ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -75,7 +77,7 @@ st.markdown("""
 # ══════════════════════════════════════════════════════════════════════
 @st.cache_data
 def load_data():
-    df = pd.read_csv("data_cesarienne_complet1.csv", encoding="utf-8")
+    df = pd.read_csv(os.path.join(BASE_DIR, "data_cesarienne_complet1.csv"), encoding="utf-8")
     df["number_of_antenatal_visits_during_p_m14"] = pd.to_numeric(
         df["number_of_antenatal_visits_during_p_m14"], errors="coerce")
     df["number_of_antenatal_visits_during_p_m14"].fillna(
@@ -205,7 +207,7 @@ def load_models():
     ]
     m = {}
     for name in ALL_MODELS:
-        p = f"model_{name}.pkl"
+        p = os.path.join(BASE_DIR, f"model_{name}.pkl")
         if os.path.exists(p):
             m[name] = joblib.load(p)
     return m
@@ -214,27 +216,26 @@ def load_models():
 @st.cache_resource
 def load_scaler():
     """Charge le scaler pour les modeles qui en ont besoin (KNN, LR)."""
-    if os.path.exists("scaler.pkl"):
-        return joblib.load("scaler.pkl")
+    if os.path.exists(os.path.join(BASE_DIR, "scaler.pkl")):
+        return joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
     return None
 
 
 @st.cache_data
 def load_ml_results():
     """Charge les metriques pre-calculees par setup.py."""
-    if os.path.exists("model_results.pkl"):
-        return joblib.load("model_results.pkl")
+    if os.path.exists(os.path.join(BASE_DIR, "model_results.pkl")):
+        return joblib.load(os.path.join(BASE_DIR, "model_results.pkl"))
     return {}
 
-# Répertoire du fichier app.py lui-même (toujours correct)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @st.cache_data
 def load_shap_results():
-    path = os.path.join(BASE_DIR, "shap_results.pkl")
-    if os.path.exists(path):
-        return joblib.load(path)
+    """Charge les valeurs SHAP pre-calculees par setup.py."""
+    if os.path.exists(os.path.join(BASE_DIR, "shap_results.pkl")):
+        return joblib.load(os.path.join(BASE_DIR, "shap_results.pkl"))
     return None
+
 
 @st.cache_data
 def compute_feat_importance(_df):
@@ -751,7 +752,6 @@ elif page == "Analyse SHAP":
         shap_col  = shap_arr[:, col_idx]
         feat_col  = X_shap_np[:, col_idx]
         # Normaliser les valeurs pour la couleur
-        # Après (compatible toutes versions)
         feat_norm = (feat_col - feat_col.min()) / (feat_col.max() - feat_col.min() + 1e-8)
         # Jitter vertical
         jitter = np.random.uniform(-0.3, 0.3, len(shap_col))
