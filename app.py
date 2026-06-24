@@ -9,6 +9,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import joblib, os, warnings
+import os
 warnings.filterwarnings('ignore')
 
 # ─── Config page ──────────────────────────────────────────────────────────────
@@ -225,14 +226,15 @@ def load_ml_results():
         return joblib.load("model_results.pkl")
     return {}
 
+# Répertoire du fichier app.py lui-même (toujours correct)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @st.cache_data
 def load_shap_results():
-    """Charge les valeurs SHAP pre-calculees par setup.py."""
-    if os.path.exists("shap_results.pkl"):
-        return joblib.load("shap_results.pkl")
+    path = os.path.join(BASE_DIR, "shap_results.pkl")
+    if os.path.exists(path):
+        return joblib.load(path)
     return None
-
 
 @st.cache_data
 def compute_feat_importance(_df):
