@@ -199,53 +199,151 @@ def compute_features(_df):
 
 
 @st.cache_resource
+def train_and_load_all(_df):
+    """
+    Entraine les 6 modeles ML + calcule SHAP en memoire.
+    Utilise le cache Streamlit — ne tourne qu'une seule fois par session serveur.
+    Compatible toutes versions Python/scikit-learn (pas de .pkl externes).
+    """
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import (roc_auc_score, f1_score, recall_score,
+                                 precision_score, accuracy_score)
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+    from sklearn.tree import DecisionTreeClassifier
+    from xgboost import XGBClassifier
+    import shap
+
+    X, y = compute_features(_df)
+    X = X.copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.20, random_state=42, stratify=y)
+
+    ratio = int((y_train == 0).sum() / (y_train == 1).sum())
+
+    scaler = StandardScaler()
+    Xtr_s  = scaler.fit_transform(X_train)
+    Xte_s  = scaler.transform(X_test)
+
+    model_specs = {
+        "logistic_regression": {
+            "model": LogisticRegression(class_weight="balanced", max_iter=1000,
+                                        C=1.0, solver="lbfgs", random_state=42),
+            "scaled": True, "label": "Regression Logistique ML"
+        },
+        "decision_tree": {
+            "model": DecisionTreeClassifier(max_depth=5, min_samples_split=50,
+                                            min_samples_leaf=20,
+                                            class_weight="balanced", random_state=42),
+            "scaled": False, "label": "Arbre de Decision"
+        },
+        "random_forest": {
+            "model": RandomForestClassifier(n_estimators=200, max_depth=10,
+                                            min_samples_split=30, min_samples_leaf=15,
+                                            class_weight="balanced", n_jobs=-1,
+                                            random_state=42),
+            "scaled": False, "label": "Random Forest"
+        },
+        "xgboost": {
+            "model": XGBClassifier(n_estimators=200, max_depth=5, learning_rate=0.05,
+                                   subsample=0.8, colsample_bytree=0.8,
+                                   scale_pos_weight=ratio, eval_metric="auc",
+                                   random_state=42, verbosity=0),
+            "scaled": False, "label": "XGBoost"
+        },
+        "gradient_boosting": {
+            "model": GradientBoostingClassifier(n_estimators=100, max_depth=4,
+                                                learning_rate=0.05, subsample=0.8,
+                                                random_state=42),
+            "scaled": False, "label": "Gradient Boosting"
+        },
+        "knn": {
+            "model": KNeighborsClassifier(n_neighbors=15, weights="distance",
+                                          metric="euclidean"),
+            "scaled": True, "label": "K-Nearest Neighbors"
+        },
+    }
+
+    ml_results     = {}
+    trained_models = {}
+
+    for name, spec in model_specs.items():
+        model = spec["model"]
+        Xtr   = Xtr_s if spec["scaled"] else X_train
+        Xte   = Xte_s if spec["scaled"] else X_test
+        if name == "xgboost":
+            model.fit(Xtr, y_train, eval_set=[(Xte, y_test)], verbose=False)
+        else:
+            model.fit(Xtr, y_train)
+        proba = model.predict_proba(Xte)[:, 1]
+        pred  = model.predict(Xte)
+        ml_results[name] = {
+            "label":     spec["label"],
+            "auc":       round(float(roc_auc_score(y_test, proba)), 3),
+            "f1":        round(float(f1_score(y_test, pred)), 3),
+            "recall":    round(float(recall_score(y_test, pred)), 3),
+            "precision": round(float(precision_score(y_test, pred)), 3),
+            "accuracy":  round(float(accuracy_score(y_test, pred)), 3),
+        }
+        trained_models[name] = model
+
+    # ── SHAP sur Random Forest ────────────────────────────────────────
+    rf_model  = trained_models["random_forest"]
+    n_shap    = min(500, len(X_test))
+    X_shap    = X_test.iloc[:n_shap].copy()
+    explainer = shap.TreeExplainer(rf_model)
+    shap_vals = explainer.shap_values(X_shap)
+    shap_arr  = np.array(shap_vals)
+
+    if shap_arr.ndim == 3 and shap_arr.shape[2] == 2:
+        shap_class1 = shap_arr[:, :, 1]
+    elif shap_arr.ndim == 3 and shap_arr.shape[0] == 2:
+        shap_class1 = shap_arr[1]
+    else:
+        shap_class1 = shap_arr
+
+    shap_importance = np.abs(shap_class1).mean(axis=0)
+    shap_df = pd.DataFrame({
+        "Variable":        X.columns.tolist(),
+        "SHAP_importance": shap_importance.tolist()
+    }).sort_values("SHAP_importance", ascending=False).reset_index(drop=True)
+
+    shap_data = {
+        "shap_values":     shap_class1.tolist(),
+        "feature_names":   X.columns.tolist(),
+        "shap_importance": shap_df.to_dict("records"),
+        "X_shap":          X_shap.values.tolist(),
+        "n_samples":       n_shap,
+    }
+
+    return trained_models, scaler, ml_results, shap_data
+
+
 def load_models():
-    """Charge les 6 modeles ML depuis les fichiers .pkl."""
-    ALL_MODELS = [
-        "logistic_regression", "decision_tree", "random_forest",
-        "xgboost", "gradient_boosting", "knn"
-    ]
-    m = {}
-    for name in ALL_MODELS:
-        p = os.path.join(BASE_DIR, f"model_{name}.pkl")
-        if os.path.exists(p):
-            m[name] = joblib.load(p)
-    return m
+    return st.session_state.get("_models", {})
 
-
-@st.cache_resource
 def load_scaler():
-    """Charge le scaler pour les modeles qui en ont besoin (KNN, LR)."""
-    if os.path.exists(os.path.join(BASE_DIR, "scaler.pkl")):
-        return joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
-    return None
+    return st.session_state.get("_scaler", None)
 
-
-@st.cache_data
 def load_ml_results():
-    """Charge les metriques pre-calculees par setup.py."""
-    if os.path.exists(os.path.join(BASE_DIR, "model_results.pkl")):
-        return joblib.load(os.path.join(BASE_DIR, "model_results.pkl"))
-    return {}
+    return st.session_state.get("_ml_metrics", {})
 
-
-@st.cache_data
 def load_shap_results():
-    """Charge les valeurs SHAP pre-calculees par setup.py."""
-    if os.path.exists(os.path.join(BASE_DIR, "shap_results.pkl")):
-        return joblib.load(os.path.join(BASE_DIR, "shap_results.pkl"))
-    return None
+    return st.session_state.get("_shap_data", None)
 
 
 @st.cache_data
 def compute_feat_importance(_df):
-    models = load_models()
-    if "random_forest" not in models:
+    _m = st.session_state.get("_models", {})
+    if "random_forest" not in _m:
         return pd.DataFrame()
     X, _ = compute_features(_df)
     X = X.copy()
     fi = pd.DataFrame({"Variable": X.columns,
-                        "Importance": models["random_forest"].feature_importances_})
+                        "Importance": _m["random_forest"].feature_importances_})
     return fi.sort_values("Importance", ascending=False).reset_index(drop=True)
 
 
@@ -255,10 +353,20 @@ def compute_feat_importance(_df):
 df          = load_data()
 biv         = compute_bivariate(df)
 logit_rows  = compute_logit(df)
-models      = load_models()
-scaler      = load_scaler()
-ml_metrics  = load_ml_results()
-shap_data   = load_shap_results()
+
+# Entrainement en memoire (1 seule fois par session serveur grace au cache)
+if "_models" not in st.session_state:
+    with st.spinner("Entrainement des modeles ML en cours... (1-2 min au premier demarrage)"):
+        _models, _scaler, _ml_metrics, _shap_data = train_and_load_all(df)
+        st.session_state["_models"]     = _models
+        st.session_state["_scaler"]     = _scaler
+        st.session_state["_ml_metrics"] = _ml_metrics
+        st.session_state["_shap_data"]  = _shap_data
+
+models      = st.session_state["_models"]
+scaler      = st.session_state["_scaler"]
+ml_metrics  = st.session_state["_ml_metrics"]
+shap_data   = st.session_state["_shap_data"]
 feat_imp    = compute_feat_importance(df)
 X_feat, _   = compute_features(df)
 feat_cols   = X_feat.columns.tolist()
