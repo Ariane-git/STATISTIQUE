@@ -12,6 +12,10 @@ import joblib, os, warnings
 warnings.filterwarnings('ignore')
 
 # ─── Config page ──────────────────────────────────────────────────────────────
+import os
+st.write("📁 Répertoire de travail :", os.getcwd())
+st.write("📄 Fichiers visibles :", os.listdir("."))
+
 st.set_page_config(
     page_title="Cesarienne — EDS Cameroun 2018",
     page_icon="🏥",
